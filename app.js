@@ -1,146 +1,78 @@
-// app.js — Node.js backend for Server 2
-const http = require("http");
+const http = require('http');
+const url = require('url');
 
-// In-memory dictionary (array of objects)
-const dictionary = [];
+let dictionary = [];
 let requestCount = 0;
 
 const server = http.createServer((req, res) => {
-  // Increment total request count
-  requestCount++;
+    requestCount++;
 
-  // Set common headers for JSON + CORS
-  res.setHeader("Content-Type", "application/json");
-  res.setHeader("Access-Control-Allow-Origin", "*"); // Allow requests from any origin
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    // Enable CORS for all origins (GitHub Pages + others)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight OPTIONS request
-  if (req.method === "OPTIONS") {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  // Parse the URL and query
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
-
-  // Endpoint: /api/definitions
-  if (pathname === "/api/definitions") {
-    if (req.method === "GET") {
-      // Handle GET request — search for a word
-      const word = url.searchParams.get("word");
-
-      if (!word || !/^[a-zA-Z]+$/.test(word)) {
-        res.writeHead(400);
-        res.end(
-          JSON.stringify({
-            message: "Invalid or missing word parameter.",
-            requestCount,
-          })
-        );
+    // Handle preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
         return;
-      }
-
-      const entry = dictionary.find(
-        (item) => item.word.toLowerCase() === word.toLowerCase()
-      );
-
-      if (entry) {
-        res.writeHead(200);
-        res.end(
-          JSON.stringify({
-            word: entry.word,
-            definition: entry.definition,
-            requestCount,
-          })
-        );
-      } else {
-        res.writeHead(404);
-        res.end(
-          JSON.stringify({
-            message: `Word "${word}" not found.`,
-            requestCount,
-          })
-        );
-      }
-    } 
-    else if (req.method === "POST") {
-      // Handle POST request — add a new word
-      let body = "";
-
-      req.on("data", (chunk) => {
-        body += chunk.toString();
-      });
-
-      req.on("end", () => {
-        try {
-          const data = JSON.parse(body);
-          const { word, definition } = data;
-
-          if (!word || !definition || !/^[a-zA-Z]+$/.test(word)) {
-            res.writeHead(400);
-            res.end(
-              JSON.stringify({
-                message: "Invalid input. Please provide a valid word and definition.",
-                requestCount,
-              })
-            );
-            return;
-          }
-
-          const existing = dictionary.find(
-            (item) => item.word.toLowerCase() === word.toLowerCase()
-          );
-
-          if (existing) {
-            res.writeHead(409); // Conflict
-            res.end(
-              JSON.stringify({
-                message: `Warning! "${word}" already exists.`,
-                requestCount,
-                totalEntries: dictionary.length,
-              })
-            );
-          } else {
-            dictionary.push({ word, definition });
-
-            res.writeHead(201);
-            res.end(
-              JSON.stringify({
-                message: `New entry recorded: "${word}" : "${definition}"`,
-                requestCount,
-                totalEntries: dictionary.length,
-              })
-            );
-          }
-        } catch (error) {
-          res.writeHead(400);
-          res.end(
-            JSON.stringify({
-              message: "Invalid JSON in request body.",
-              requestCount,
-            })
-          );
-        }
-      });
-    } 
-    else {
-      // Unsupported method
-      res.writeHead(405);
-      res.end(JSON.stringify({ message: "Method Not Allowed", requestCount }));
     }
-  } else {
-    // Invalid endpoint
-    res.writeHead(404);
-    res.end(JSON.stringify({ message: "Endpoint Not Found", requestCount }));
-  }
+
+    const parsedUrl = url.parse(req.url, true);
+
+    if (parsedUrl.pathname === '/api/definitions' && req.method === 'GET') {
+        const word = parsedUrl.query.word?.toLowerCase();
+        const entry = dictionary.find(item => item.word === word);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(entry ? 
+            { definition: entry.definition, requestCount } : 
+            { message: `Word "${word}" not found.`, requestCount }
+        ));
+    }
+
+    else if (parsedUrl.pathname === '/api/definitions' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                const word = data.word?.toLowerCase();
+                const definition = data.definition;
+
+                if (!word || !definition) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ message: 'Invalid input.', requestCount }));
+                    return;
+                }
+
+                const existing = dictionary.find(item => item.word === word);
+                if (existing) {
+                    res.writeHead(409, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ message: `Warning! "${word}" already exists.`, requestCount }));
+                    return;
+                }
+
+                dictionary.push({ word, definition });
+                res.writeHead(201, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    message: `New entry recorded: "${word}"`,
+                    totalEntries: dictionary.length,
+                    requestCount
+                }));
+
+            } catch {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: 'Invalid JSON format.', requestCount }));
+            }
+        });
+    }
+
+    else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'Endpoint not found.', requestCount }));
+    }
 });
 
-// Choose your own port (e.g. 8080 or 3000)
 const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
